@@ -39,6 +39,8 @@ RUN if [ $ATOMICPARSLEY == 1 ]; then apk add --no-cache -X http://dl-cdn.alpinel
 COPY ./requirements.txt /usr/src/app/
 RUN pip install --upgrade pip && pip install --no-cache-dir -r <(cat /usr/src/app/requirements.txt| grep -v yt-dlp)
 
+RUN pip install --upgrade --force-reinstall "https://github.com/ytdl-org/youtube-dl/archive/refs/heads/master.tar.gz"
+
 COPY ./config.yml /usr/src/app/default_config.yml
 COPY ./ydl_server /usr/src/app/ydl_server
 COPY ./youtube-dl-server.py /usr/src/app/
