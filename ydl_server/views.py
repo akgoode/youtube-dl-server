@@ -2,8 +2,8 @@ from starlette.responses import JSONResponse
 
 from operator import itemgetter
 from pathlib import Path
-from ydl_server.config import app_config, get_finished_path, YDL_FORMATS
-from ydl_server.logdb import JobsDB, Job, Actions, JobType
+from ydl_server.config import app_config, get_finished_path, get_ydl_formats
+from ydl_server.db import JobsDB, Job, Actions, JobType
 from datetime import datetime
 import os
 import signal
@@ -26,9 +26,13 @@ async def api_finished(request):
                     {
                         "name": f2.name,
                         "size": f2.stat().st_size,
-                        "modified": datetime.fromtimestamp(f2.stat().st_mtime).strftime("%H:%m %D"),
-                        "created": datetime.fromtimestamp(f2.stat().st_ctime).strftime("%H:%m %D"),
-                        }
+                        "modified": datetime.fromtimestamp(f2.stat().st_mtime).strftime(
+                            "%H:%m %D"
+                        ),
+                        "created": datetime.fromtimestamp(f2.stat().st_ctime).strftime(
+                            "%H:%m %D"
+                        ),
+                    }
                     for f2 in f1.iterdir()
                     if not f2.name.startswith(".")
                 ],
@@ -59,7 +63,9 @@ async def api_delete_file(request):
             fname.unlink()
     except OSError as e:
         print(e)
-        return JSONResponse({"success": False, "message": "Could not delete the specified file"})
+        return JSONResponse(
+            {"success": False, "message": "Could not delete the specified file"}
+        )
 
     return JSONResponse({"success": True, "message": "File deleted"})
 
@@ -76,6 +82,7 @@ async def api_server_info(request):
             "ydl_module_website": request.app.state.ydlhandler.ydl_website,
             "ydls_version": request.app.state.ydlhandler.ydls_version,
             "ydls_release_date": request.app.state.ydlhandler.ydls_release_date,
+            "download_workers_count": request.app.state.ydlhandler.download_workers_count,
         }
     )
 
@@ -83,15 +90,17 @@ async def api_server_info(request):
 async def api_list_formats(request):
     return JSONResponse(
         {
-            "ydl_formats": YDL_FORMATS,
-            "ydl_default_format": app_config["ydl_server"].get("default_format", 'video/best')
+            "ydl_formats": get_ydl_formats(app_config),
+            "ydl_default_format": app_config["ydl_server"].get(
+                "default_format", "video/best"
+            ),
         }
     )
 
 
 async def api_queue_size(request):
     db = JobsDB(readonly=True)
-    jobs = db.get_all(app_config["ydl_server"].get("max_log_entries", 100))
+    jobs = db.get_jobs(app_config["ydl_server"].get("max_log_entries", 100))
     return JSONResponse(
         {
             "success": True,
@@ -109,7 +118,16 @@ async def api_queue_size(request):
 
 async def api_logs(request):
     db = JobsDB(readonly=True)
-    return JSONResponse(db.get_all(app_config["ydl_server"].get("max_log_entries", 100)))
+    if request.query_params.get("show_logs", "1") in ["1", "true"]:
+        return JSONResponse(
+            db.get_jobs_with_logs(
+                app_config["ydl_server"].get("max_log_entries", 100),
+                request.query_params.get("status", None)
+                )
+        )
+    return JSONResponse(
+        db.get_jobs(app_config["ydl_server"].get("max_log_entries", 100))
+    )
 
 
 async def api_logs_purge(request):
@@ -126,44 +144,97 @@ async def api_jobs_stop(request):
     db = JobsDB(readonly=True)
     job_id = request.path_params["job_id"]
     job = db.get_job_by_id(job_id)
-    if job["status"] == 'Pending':
-        print("Cancelling pending job")
-        request.app.state.jobshandler.put((Actions.SET_STATUS, (job["id"], Job.ABORTED)))
-    elif job["status"] == 'Running' and int(job["pid"]) != 0:
-        print("Stopping running job", job["pid"])
-        print(os.kill(job["pid"], signal.SIGINT))
 
-    return JSONResponse({"success": True})
+    if not job:
+        return JSONResponse({"success": False}, status_code=404)
+    if job["status"] == "Pending":
+        print("Cancelling pending job")
+        request.app.state.jobshandler.put(
+            (Actions.SET_STATUS, (job["id"], Job.ABORTED))
+        )
+        return JSONResponse({"success": True})
+    if job["status"] == "Running" and int(job["pid"]) != 0:
+        print("Stopping running job", job["pid"])
+        try:
+            print(os.kill(job["pid"], signal.SIGINT))
+        except ProcessLookupError:
+            print("Process already dead")
+        return JSONResponse({"success": True})
+    if int(job["pid"]) == 0:
+        request.app.state.jobshandler.put(
+            (Actions.SET_STATUS, (job["id"], Job.ABORTED))
+        )
+        return JSONResponse({"success": True})
+    return JSONResponse({"success": False})
+
 
 async def api_jobs_retry(request):
     db = JobsDB(readonly=True)
     job_id = request.path_params["job_id"]
     job = db.get_job_by_id(job_id)
-    new_job = Job(job["url"], Job.PENDING, "", JobType.YDL_DOWNLOAD, job["format"], job["url"])
+    if not job:
+        return JSONResponse({"success": False}, status_code=404)
 
-    request.app.state.jobshandler.put((Actions.DELETE_LOG, job))
+    new_job = Job(
+        job["name"], Job.PENDING, "", JobType.YDL_DOWNLOAD, job["format"], job["urls"]
+    )
+
+    request.app.state.jobshandler.put((Actions.DELETE_LOG_SAFE, job))
     request.app.state.jobshandler.put((Actions.INSERT, new_job))
 
     return JSONResponse({"success": True})
 
+async def api_jobs_delete(request):
+    job_id = request.path_params["job_id"]
+    if job_id is not None:
+        request.app.state.jobshandler.put((Actions.DELETE_LOG, {'id': job_id}))
+        return JSONResponse({"success": True})
+    return JSONResponse({"success": False})
+
 async def api_queue_download(request):
-    data = await request.json()
+    if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
+        data = await request.form()
+    else:
+        data = await request.json()
     url = data.get("url")
-    options = {"format": data.get("format")}
+    urls = data.get("urls", [])
+    profile = data.get("profile")
+    audio_format = data.get("audio_format")
+    format_str = data.get("format")
 
-    if not url:
-        return JSONResponse({"success": False, "error": "'url' query parameter omitted"})
+    if profile:
+        format_str = ','.join([format_str, profile])
+    if audio_format:
+        format_str = ',audio/'.join([format_str, audio_format])
+    options = {"format": format_str}
 
-    job = Job(url, Job.PENDING, "", JobType.YDL_DOWNLOAD, data.get("format"), url)
+    if url:
+        urls.append(url)
+
+    if len(urls) == 0:
+        return JSONResponse(
+            {"success": False, "error": "'url' and 'urls' query parameters omitted"}
+        )
+
+    job = Job(
+        ", ".join(urls), Job.PENDING, "", JobType.YDL_DOWNLOAD, format_str, urls
+    )
     request.app.state.jobshandler.put((Actions.INSERT, job))
 
-    print("Added url " + url + " to the download queue")
-    return JSONResponse({"success": True, "url": url, "options": options})
+    print("Added url " + ",".join(urls) + " to the download queue")
+    return JSONResponse({"success": True, "urls": urls, "options": options})
 
 
 async def api_metadata_fetch(request):
-    data = await request.json()
-    rc, stdout = request.app.state.ydlhandler.fetch_metadata(data.get("url"))
+    if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
+        data = await request.form()
+    else:
+        data = await request.json()
+    url = data.get("url")
+    urls = data.get("urls", [])
+    if url:
+        urls.append(url)
+    rc, stdout = request.app.state.ydlhandler.fetch_metadata(urls)
     if rc == 0:
         return JSONResponse(stdout)
     return JSONResponse({"success": False}, status_code=404)

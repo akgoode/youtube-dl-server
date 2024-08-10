@@ -3,14 +3,28 @@ ydl_server:   # youtube-dl-server specific settings
   host: 0.0.0.0   # IP youtube-dl-server should bind to
   debug: False    # Enable/Disable debug mode
   metadata_db_path: '/youtube-dl/.ydl-metadata.db' # Path to metadata DB
-  output_playlist: '/youtube-dl/%(title)s [%(id)s].%(ext)s' # Playlist output directory template
+  output_playlist: '/youtube-dl/%(playlist_title)s [%(playlist_id)s]/%(title)s.%(ext)s' # Playlist output directory template
   max_log_entries: 100 # Maximum number of job log history to keep
   forwarded_allow_ips: None # uvicorn Comma seperated list of IPs to trust with proxy headers.
   proxy_headers: True # uvicorn flag Enable/Disable X-Forwarded-Proto, X-Forwarded-For, X-Forwarded-Port to populate remote address info.
   default_format: video/best # Default format selection
+  download_workers_count: 2 # Number of download worker threads
 
 ydl_options:  # youtube-dl options
   output: '/youtube-dl/%(title)s [%(id)s].%(ext)s' # output directory template
   cache-dir: '/youtube-dl/.cache' # youtube-dl cache directory
   ignore-errors: True # instruct youtube-dl to skip errors
   age-limit: 6 # minimal age requirement / parental control setting
+
+profiles:
+  podcast:
+      name: 'Audio Podcasts'
+      ydl_options:
+        output: '/youtube-dl/Podcast/%(title)s [%(id)s].%(ext)s'
+        format: bestaudio/best
+        write-thumbnail: True
+        embed-thumbnail: True
+        add-metadata: True
+        audio-quality: 0
+        extract-audio: True
+        audio-format: mp3

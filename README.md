@@ -6,7 +6,7 @@
 
 Simple Web and REST interface for downloading youtube videos onto a server.
 [`starlette`](https://www.starlette.io/) +
-[`youtube-dl`](https://github.com/rg3/youtube-dl)
+[`youtube-dl`](https://github.com/rg3/youtube-dl) / [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
 Forked from [manbearwiz/youtube-dl-server](https://github.com/manbearwiz/youtube-dl-server).
 
@@ -20,14 +20,8 @@ Forked from [manbearwiz/youtube-dl-server](https://github.com/manbearwiz/youtube
 For easier deployment, a docker image is available on
 [dockerhub](https://hub.docker.com/r/nbr23/youtube-dl-server):
 
-- `nbr23/youtube-dl-server:latest` to use `youtube-dl`
+- `nbr23/youtube-dl-server:youtube-dl` to use `youtube-dl`
 - `nbr23/youtube-dl-server:yt-dlp` to use `yt-dlp`
-
-### Ansible
-
-The ansible role
-[ansible-role-youtubedl-server](https://github.com/nbr23/ansible-role-youtubedl-server)
-deploys `youtube-dl-server` using `docker` and `nginx`.
 
 ### Docker CLI
 
@@ -57,11 +51,6 @@ This is an example service definition that could be put in `docker-compose.yml`.
       - ./config.yml:/app_config/config.yml:ro # Overwrite the container's config file with your own configuration
     restart: always
 ```
-### HomeAssistant Addon
-
-In the addons store add the repository (https://github.com/unofficial-skills/addons) or click the buton [![adds addon repo.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Funofficial-skills%2Faddons).
-
-Once the addon repository has been added, you should be able to install (YouTube Dl Server) from the Unofficial-skills section.
 
 ## Configuration
 
@@ -95,6 +84,8 @@ ydl_options:
   cache-dir: '/youtube-dl/.cache'
 ```
 
+### Extra options
+
 Additional youtube-dl parameters can be set in the `ydl_options` sections. To
 do this, simply add regular youtube-dl parameters, removing the leading `--`.
 
@@ -112,6 +103,37 @@ ydl_options:
   sub-lang: es
 ```
 
+### Profiles
+
+You can also define profiles. They allow you to define configuration sets that can be selected in the UI.
+
+Sample:
+
+```yaml
+profiles:
+  podcast:
+      name: 'Audio Podcasts'
+      ydl_options:
+        output: '/youtube-dl/Podcast/%(title)s [%(id)s].%(ext)s'
+        format: bestaudio/best
+        write-thumbnail: True
+        embed-thumbnail: True
+        add-metadata: True
+        audio-quality: 0
+        extract-audio: True
+        audio-format: mp3
+  philosophy_lectures:
+      name: 'Philosophy Lectures'
+      ydl_options:
+        output: '/youtube-dl/Lectures/Philosophy/%(title)s [%(id)s].%(ext)s'
+        write-thumbnail: True
+        embed-thumbnail: True
+        add-metadata: True
+        verbose: True
+```
+
+![screenshot][3]
+
 ## Python
 
 If you have python ^3.3.0 installed in your PATH you can simply run like this,
@@ -123,12 +145,6 @@ Install the python dependencies from `requirements.txt`:
 pip install -r requirements.txt
 ```
 
-OR, if using `yt-dlp`:
-
-```shell
-pip install -r requirements-yt-dlp.txt
-```
-
 You can run
 [bootstrap.sh](https://github.com/nbr23/youtube-dl-server/blob/master/bootstrap.sh)
 to download the required front-end libraries (jquery, bootstrap).
@@ -137,7 +153,7 @@ to download the required front-end libraries (jquery, bootstrap).
 python3 -u ./youtube-dl-server.py
 ```
 
-To force a specific `youtube-dl` version/fork  (eg `youtube-dlc` or `yt-dlp`), use the
+To force a specific `youtube-dl` version/fork  (eg `yt-dlp`), use the
 variable `YOUTUBE_DL`:
 
 ```shell
@@ -205,19 +221,14 @@ javascript:(function(){document.body.innerHTML += '<form name="ydl_form" method=
 
 `ffmpeg` is required for format conversion and audio extraction in some
 scenarios.
+## Additional references
 
-## Implementation
-
-The server uses [`starlette`](https://www.starlette.io/) for the web framework
-and [`youtube-dl`](https://github.com/rg3/youtube-dl) to handle the
-downloading. The integration with youtube-dl does NOT use their [python
-api](https://github.com/rg3/youtube-dl#embedding-youtube-dl) anymore, but calls
-the youtube-dl binary directly as the API doesn't provide easy ways to handle
-common arguments.
-
-This docker image is based on
-[`python:alpine`](https://registry.hub.docker.com/_/python/) and consequently
-[`alpine`](https://hub.docker.com/_/alpine/).
+* [ansible-role-youtubedl-server](https://github.com/nbr23/ansible-role-youtubedl-server)
+* [ytdl-k8s](https://github.com/droopy4096/ytdl-k8s) - `youtube-dl-server` Helm chart (uses `youtube-dl-server` image for kubernetes deployment)
+* [starlette](https://www.starlette.io/)
+* [youtube-dl](https://github.com/rg3/youtube-dl)
+* [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
 [1]:youtube-dl-server.png
 [2]:youtube-dl-server-logs.png
+[3]:youtube-dl-server-profiles.png

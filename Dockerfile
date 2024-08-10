@@ -4,7 +4,8 @@
 # https://github.com/nbr23/youtube-dl-server
 #
 
-FROM --platform=$BUILDPLATFORM node:20-alpine as nodebuild
+ARG YOUTUBE_DL=yt-dlp
+FROM --platform=$BUILDPLATFORM node:22-alpine AS nodebuild
 
 WORKDIR /app
 COPY ./front/package*.json /app
@@ -12,14 +13,15 @@ RUN npm ci
 COPY ./front /app
 RUN npm run build
 
-
-FROM python:alpine3.17 as wheels
+FROM python:alpine AS wheels
 
 RUN apk add --no-cache g++
-RUN pip install --upgrade --no-cache-dir pip && pip wheel --no-cache-dir --no-deps --wheel-dir /out/wheels brotli pycryptodomex websockets pyyaml
+COPY ./requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /out/wheels -r <(cat ./requirements.txt| grep -v youtube-dl | grep -v yt-dlp) \
+  && pip wheel --no-cache-dir --wheel-dir /out/wheels-youtube-dl youtube-dl \
+  && pip wheel --no-cache-dir --wheel-dir /out/wheels-yt-dlp yt-dlp
 
-FROM python:alpine3.17
-ARG YOUTUBE_DL=youtube_dl
+FROM python:alpine AS base
 ARG ATOMICPARSLEY=0
 ARG YDLS_VERSION
 ARG YDLS_RELEASE_DATE
@@ -27,17 +29,31 @@ ARG YDLS_RELEASE_DATE
 ENV YDLS_VERSION=$YDLS_VERSION
 ENV YDLS_RELEASE_DATE=$YDLS_RELEASE_DATE
 
+WORKDIR /usr/src/app
+RUN apk add --no-cache ffmpeg tzdata mailcap
+RUN if [ $ATOMICPARSLEY == 1 ]; then apk add --no-cache -X http://dl-cdn.alpinelinux.org/alpine/edge/testing atomicparsley; ln /usr/bin/atomicparsley /usr/bin/AtomicParsley || true; fi
+
 VOLUME "/youtube-dl"
 VOLUME "/app_config"
 
 COPY --from=wheels /out/wheels /wheels
 RUN pip install --no-cache /wheels/*
 
-RUN mkdir -p /usr/src/app
-RUN apk add --no-cache ffmpeg tzdata mailcap
-RUN if [ $ATOMICPARSLEY == 1 ]; then apk add --no-cache -X http://dl-cdn.alpinelinux.org/alpine/edge/testing atomicparsley; ln /usr/bin/atomicparsley /usr/bin/AtomicParsley || true; fi
 COPY ./requirements.txt /usr/src/app/
-RUN pip install --upgrade pip && pip install --no-cache-dir -r <(cat /usr/src/app/requirements.txt| grep -v yt-dlp)
+
+FROM base AS yt-dlp
+
+COPY --from=wheels /out/wheels-yt-dlp /wheels
+RUN pip install --no-cache /wheels/*
+RUN pip install --no-cache-dir -r <(cat /usr/src/app/requirements.txt| grep -v youtube-dl)
+
+FROM base AS youtube-dl
+
+COPY --from=wheels /out/wheels-youtube-dl /wheels/
+RUN pip install --no-cache /wheels/*
+RUN pip install --no-cache-dir -r <(cat /usr/src/app/requirements.txt| grep -v yt-dlp)
+
+FROM ${YOUTUBE_DL}
 
 RUN pip install --upgrade --force-reinstall "https://github.com/ytdl-org/youtube-dl/archive/refs/heads/master.tar.gz"
 
@@ -47,12 +63,10 @@ COPY ./youtube-dl-server.py /usr/src/app/
 
 COPY --from=nodebuild /app/dist /usr/src/app/ydl_server/static
 
-WORKDIR /usr/src/app
-
 EXPOSE 8080
 
 ENV YOUTUBE_DL=$YOUTUBE_DL
 ENV YDL_CONFIG_PATH='/app_config'
 CMD [ "python", "-u", "./youtube-dl-server.py" ]
 
-HEALTHCHECK CMD wget 127.0.0.1:8080/api/info --spider -q
+HEALTHCHECK CMD wget 127.0.0.1:8080/api/info --spider -q -Y off

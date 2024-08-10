@@ -1,8 +1,8 @@
-import {createApp} from 'vue';
+import { createApp } from 'vue';
 import App from './App.vue';
-import {createRouter, createWebHashHistory} from 'vue-router';
+import VueCookies from 'vue-cookies'
+import { createRouter, createWebHashHistory } from 'vue-router';
 
-// import 'bootstrap-vue/dist/bootstrap-vue.css';
 import 'bootstrap/dist/css/bootstrap.css';
 
 import './assets/style.css';
@@ -11,9 +11,10 @@ import Home from './components/Home.vue';
 import Finished from './components/Finished.vue';
 
 const routes = [
-  {path: '/', component: Home},
-  {path: '/logs', component: Logs},
-  {path: '/finished', component: Finished},
+  { path: '/', component: Home },
+  { path: '/home', component: Home },
+  { path: '/logs', component: Logs },
+  { path: '/finished', component: Finished },
 ];
 
 const router = createRouter({
@@ -22,4 +23,6 @@ const router = createRouter({
 });
 const app = createApp(App);
 app.use(router);
+app.use(VueCookies);
+
 app.mount('#app');

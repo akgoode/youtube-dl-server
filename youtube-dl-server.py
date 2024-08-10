@@ -4,7 +4,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
 
-from ydl_server.logdb import JobsDB
+from ydl_server.db import JobsDB
 
 from ydl_server.ydlhandler import YdlHandler
 from ydl_server.jobshandler import JobsHandler
@@ -13,8 +13,7 @@ from ydl_server.config import app_config
 from ydl_server.routes import routes
 
 if __name__ == "__main__":
-    JobsDB.check_db_latest()
-    JobsDB.init_db()
+    JobsDB.init()
 
     middleware = [Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])]
 
@@ -28,7 +27,7 @@ if __name__ == "__main__":
     app.state.ydlhandler = YdlHandler(app_config, app.state.jobshandler)
 
     app.state.ydlhandler.start()
-    print("Started download thread")
+    print("Started download threads")
     app.state.jobshandler.start(app.state.ydlhandler.queue)
     print("Started jobs manager thread")
 

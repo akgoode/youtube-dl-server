@@ -1,6 +1,6 @@
 from queue import Queue
 from threading import Thread
-from ydl_server.logdb import JobsDB, Actions
+from ydl_server.db import JobsDB, Actions
 
 
 class JobsHandler:
@@ -30,7 +30,9 @@ class JobsHandler:
             if action == Actions.PURGE_LOGS:
                 db.purge_jobs()
             elif action == Actions.INSERT:
-                db.clean_old_jobs(self.app_config["ydl_server"].get("max_log_entries", 100) - 1)
+                db.clean_old_jobs(
+                    self.app_config["ydl_server"].get("max_log_entries", 100) - 1
+                )
                 db.insert_job(job)
                 dl_queue.put(job)
             elif action == Actions.UPDATE:
@@ -52,6 +54,8 @@ class JobsHandler:
                 db.set_job_pid(job_id, pid)
             elif action == Actions.CLEAN_LOGS:
                 db.clean_old_jobs()
+            elif action == Actions.DELETE_LOG_SAFE:
+                db.delete_job_safe(job["id"])
             elif action == Actions.DELETE_LOG:
                 db.delete_job(job["id"])
             self.queue.task_done()
